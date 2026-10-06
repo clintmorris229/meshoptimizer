@@ -2691,6 +2691,53 @@ static void simplifyFolds()
 	assert(memcmp(result, expected, sizeof(expected)) == 0);
 }
 
+static int simplifyCustomReject(void* context, unsigned int v0, unsigned int v1)
+{
+	assert(v0 != v1);
+
+	int* allowed = static_cast<int*>(context);
+	if (*allowed <= 0)
+		return 0;
+
+	(*allowed)--;
+	return 1;
+}
+
+static void simplifyCustom()
+{
+	// 0
+	// 1 2
+	// 3 4 5
+	const unsigned int ib[] = {
+	    0, 2, 1,
+	    1, 2, 3,
+	    3, 2, 4,
+	    2, 5, 4 //
+	};
+
+	const float vb[] = {
+	    0, 4, 0,
+	    0, 1, 0,
+	    2, 2, 0,
+	    0, 0, 0,
+	    1, 0, 0,
+	    4, 0, 0 //
+	};
+
+	unsigned int result[12];
+
+	// NULL callback behaves identically to meshopt_simplify
+	assert(meshopt_simplifyCustom(result, ib, 12, vb, 6, 12, 3, 1e-2f, 0, NULL, NULL, NULL) == 3);
+
+	// Rejecting all collapses leaves the mesh unchanged
+	int allowed = 0;
+	assert(meshopt_simplifyCustom(result, ib, 12, vb, 6, 12, 3, 1e-2f, 0, NULL, simplifyCustomReject, &allowed) == 12);
+
+	// Allowing 1 collapse reduces 1 triangle (3 indices)
+	allowed = 1;
+	assert(meshopt_simplifyCustom(result, ib, 12, vb, 6, 12, 3, 1e-2f, 0, NULL, simplifyCustomReject, &allowed) == 9);
+}
+
 static void filterTriangles()
 {
 	// v0/v3 match fully; v0/v4 match on prefix only
@@ -2745,7 +2792,7 @@ static void adjacency()
 	    1, 3,
 	    2, 2,
 
-	    // patch 1
+		// patch 1
 	    5, 0,
 	    4, 4,
 	    3, 3 //
@@ -3681,6 +3728,7 @@ void runTests()
 	simplifyUpdateLocked(0);
 	simplifyUpdateLocked(meshopt_SimplifySparse);
 	simplifyFolds();
+	simplifyCustom();
 
 	filterTriangles();
 	adjacency();

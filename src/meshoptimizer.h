@@ -541,6 +541,13 @@ MESHOPTIMIZER_API size_t meshopt_simplify(unsigned int* destination, const unsig
 MESHOPTIMIZER_API size_t meshopt_simplifyWithAttributes(unsigned int* destination, const unsigned int* indices, size_t index_count, const float* vertex_positions, size_t vertex_count, size_t vertex_positions_stride, const float* vertex_attributes, size_t vertex_attributes_stride, const float* attribute_weights, size_t attribute_count, const unsigned char* vertex_lock, size_t target_index_count, float target_error, unsigned int options, float* result_error);
 
 /**
+ * Experimental: Mesh simplifier with custom collapse callback
+ * Similar to meshopt_simplify, but invokes callback(context, v0, v1) before committing each edge collapse v0 -> v1.
+ * callback can be NULL; otherwise, it should return 1 to allow the collapse and 0 to reject it.
+ */
+MESHOPTIMIZER_EXPERIMENTAL size_t meshopt_simplifyCustom(unsigned int* destination, const unsigned int* indices, size_t index_count, const float* vertex_positions, size_t vertex_count, size_t vertex_positions_stride, size_t target_index_count, float target_error, unsigned int options, float* result_error, int (*callback)(void*, unsigned int, unsigned int), void* context);
+
+/**
  * Mesh simplifier with position/attribute update
  * Reduces the number of triangles in the mesh, attempting to preserve mesh appearance as much as possible.
  * Similar to meshopt_simplifyWithAttributes, but destructively updates positions and attribute values for optimal appearance.
@@ -619,7 +626,7 @@ MESHOPTIMIZER_API float meshopt_simplifyScale(const float* vertex_positions, siz
  * Converts a previously vertex cache optimized triangle list to triangle strip, stitching strips using restart index or degenerate triangles
  * Returns the number of indices in the resulting strip, with destination containing new index data
  * For maximum efficiency the index buffer being converted has to be optimized for vertex cache first.
- * Using restart indices can result in ~5-10% smaller index buffers, but on some GPUs restart indices may result in decreased performance.
+ * Using restart indices can result in ~10% smaller index buffers, but on some GPUs restart indices may result in decreased performance.
  *
  * destination must contain enough space for the target index buffer, worst case can be computed with meshopt_stripifyBound
  * restart_index should be 0xffff or 0xffffffff depending on index size, or 0 to use degenerate triangles
@@ -1124,6 +1131,8 @@ template <typename T>
 inline size_t meshopt_simplify(T* destination, const T* indices, size_t index_count, const float* vertex_positions, size_t vertex_count, size_t vertex_positions_stride, size_t target_index_count, float target_error, unsigned int options = 0, float* result_error = NULL);
 template <typename T>
 inline size_t meshopt_simplifyWithAttributes(T* destination, const T* indices, size_t index_count, const float* vertex_positions, size_t vertex_count, size_t vertex_positions_stride, const float* vertex_attributes, size_t vertex_attributes_stride, const float* attribute_weights, size_t attribute_count, const unsigned char* vertex_lock, size_t target_index_count, float target_error, unsigned int options = 0, float* result_error = NULL);
+template <typename T, typename F>
+inline size_t meshopt_simplifyCustom(T* destination, const T* indices, size_t index_count, const float* vertex_positions, size_t vertex_count, size_t vertex_positions_stride, size_t target_index_count, float target_error, unsigned int options, float* result_error, F callback);
 template <typename T>
 inline size_t meshopt_simplifyWithUpdate(T* indices, size_t index_count, float* vertex_positions, size_t vertex_count, size_t vertex_positions_stride, float* vertex_attributes, size_t vertex_attributes_stride, const float* attribute_weights, size_t attribute_count, const unsigned char* vertex_lock, size_t target_index_count, float target_error, unsigned int options = 0, float* result_error = NULL);
 template <typename T>
@@ -1529,6 +1538,20 @@ inline size_t meshopt_simplifyWithAttributes(T* destination, const T* indices, s
 	meshopt_IndexAdapter<T> out(destination, NULL, index_count);
 
 	return meshopt_simplifyWithAttributes(out.data, in.data, index_count, vertex_positions, vertex_count, vertex_positions_stride, vertex_attributes, vertex_attributes_stride, attribute_weights, attribute_count, vertex_lock, target_index_count, target_error, options, result_error);
+}
+
+template <typename T, typename F>
+inline size_t meshopt_simplifyCustom(T* destination, const T* indices, size_t index_count, const float* vertex_positions, size_t vertex_count, size_t vertex_positions_stride, size_t target_index_count, float target_error, unsigned int options, float* result_error, F callback)
+{
+	struct Call
+	{
+		static int accept(void* context, unsigned int v0, unsigned int v1) { return (*static_cast<F*>(context))(v0, v1) ? 1 : 0; }
+	};
+
+	meshopt_IndexAdapter<T> in(NULL, indices, index_count);
+	meshopt_IndexAdapter<T> out(destination, NULL, index_count);
+
+	return meshopt_simplifyCustom(out.data, in.data, index_count, vertex_positions, vertex_count, vertex_positions_stride, target_index_count, target_error, options, result_error, &Call::accept, &callback);
 }
 
 template <typename T>
